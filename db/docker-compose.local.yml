@@ -1,0 +1,26 @@
+services:
+  postgres-next:
+    image: postgres:16
+    container_name: postgres-next
+    restart: always
+    ports:
+      - "${POSTGRES_PORT:-65432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-next:/var/lib/postgresql/data
+      # 初期化SQL使う場合は以下を有効に
+      # - ./src/frameworks-drivers/db/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    env_file:
+      - .env.local
+    # networks:
+    #   - local-network
+
+volumes:
+  postgres-next:
+
+# networks:
+#   local-network:
+#     external: true

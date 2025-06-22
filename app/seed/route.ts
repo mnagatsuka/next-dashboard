@@ -1,117 +1,135 @@
 import bcrypt from 'bcrypt';
-import postgres from 'postgres';
+import { getDb } from '@/db/client';
+import * as schema from '@/db/schema';
+
 import { invoices, customers, revenue, users } from '../lib/placeholder-data';
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+const dbUrl = process.env.DB_URL ?? '';
+
+// Initialize the Drizzle ORM client
+const db = getDb(dbUrl);
 
 async function seedUsers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-  await sql`
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL
-    );
-  `;
-
+  console.log('Seeding users...');
   const insertedUsers = await Promise.all(
     users.map(async (user) => {
       const hashedPassword = await bcrypt.hash(user.password, 10);
-      return sql`
-        INSERT INTO users (id, name, email, password)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword})
-        ON CONFLICT (id) DO NOTHING;
-      `;
+      try {
+        await db.insert(schema.users).values({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: hashedPassword,
+        }).onConflictDoNothing();
+        return `Inserted user: ${user.email}`;
+      } catch (error) {
+        console.error(`Failed to insert user ${user.email}:`, error);
+        return `Failed to insert user: ${user.email}`;
+      }
     }),
   );
-
+  console.log('Users seeded:', insertedUsers.filter(s => s.startsWith('Inserted')).length, 'users inserted/skipped.');
   return insertedUsers;
 }
 
-async function seedInvoices() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS invoices (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      customer_id UUID NOT NULL,
-      amount INT NOT NULL,
-      status VARCHAR(255) NOT NULL,
-      date DATE NOT NULL
-    );
-  `;
-
-  const insertedInvoices = await Promise.all(
-    invoices.map(
-      (invoice) => sql`
-        INSERT INTO invoices (customer_id, amount, status, date)
-        VALUES (${invoice.customer_id}, ${invoice.amount}, ${invoice.status}, ${invoice.date})
-        ON CONFLICT (id) DO NOTHING;
-      `,
-    ),
-  );
-
-  return insertedInvoices;
-}
-
 async function seedCustomers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS customers (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) NOT NULL,
-      image_url VARCHAR(255) NOT NULL
-    );
-  `;
-
+  console.log('Seeding customers...');
   const insertedCustomers = await Promise.all(
-    customers.map(
-      (customer) => sql`
-        INSERT INTO customers (id, name, email, image_url)
-        VALUES (${customer.id}, ${customer.name}, ${customer.email}, ${customer.image_url})
-        ON CONFLICT (id) DO NOTHING;
-      `,
-    ),
+    customers.map(async (customer) => {
+      try {
+        await db.insert(schema.customers).values({
+          id: customer.id,
+          name: customer.name,
+          email: customer.email,
+          image_url: customer.image_url,
+        }).onConflictDoNothing();
+        return `Inserted customer: ${customer.name}`;
+      } catch (error) {
+        console.error(`Failed to insert customer ${customer.name}:`, error);
+        return `Failed to insert customer: ${customer.name}`;
+      }
+    }),
   );
-
+  console.log('Customers seeded:', insertedCustomers.filter(s => s.startsWith('Inserted')).length, 'customers inserted/skipped.');
   return insertedCustomers;
 }
 
-async function seedRevenue() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS revenue (
-      month VARCHAR(4) NOT NULL UNIQUE,
-      revenue INT NOT NULL
-    );
-  `;
-
-  const insertedRevenue = await Promise.all(
-    revenue.map(
-      (rev) => sql`
-        INSERT INTO revenue (month, revenue)
-        VALUES (${rev.month}, ${rev.revenue})
-        ON CONFLICT (month) DO NOTHING;
-      `,
-    ),
+async function seedInvoices() {
+  console.log('Seeding invoices...');
+  const insertedInvoices = await Promise.all(
+    invoices.map(async (invoice) => {
+      try {
+        await db.insert(schema.invoices).values({
+          id: invoice.id,
+          customer_id: invoice.customer_id,
+          amount: invoice.amount,
+          status: invoice.status,
+          date: invoice.date,
+        }).onConflictDoNothing();
+        return `Inserted invoice for customer ID: ${invoice.customer_id}`;
+      } catch (error) {
+        console.error(`Failed to insert invoice for customer ID ${invoice.customer_id}:`, error);
+        return `Failed to insert invoice for customer ID: ${invoice.customer_id}`;
+      }
+    }),
   );
+  console.log('Invoices seeded:', insertedInvoices.filter(s => s.startsWith('Inserted')).length, 'invoices inserted/skipped.');
+  return insertedInvoices;
+}
 
+async function seedRevenue() {
+  console.log('Seeding revenue...');
+  const insertedRevenue = await Promise.all(
+    revenue.map(async (rev) => {
+      try {
+        await db.insert(schema.revenue).values({
+          month: rev.month,
+          revenue: rev.revenue,
+        }).onConflictDoNothing();
+        return `Inserted revenue for month: ${rev.month}`;
+      } catch (error) {
+        console.error(`Failed to insert revenue for month ${rev.month}:`, error);
+        return `Failed to insert revenue for month: ${rev.month}`;
+      }
+    }),
+  );
+  console.log('Revenue seeded:', insertedRevenue.filter(s => s.startsWith('Inserted')).length, 'revenue entries inserted/skipped.');
   return insertedRevenue;
 }
 
 export async function GET() {
   try {
-    const result = await sql.begin((sql) => [
-      seedUsers(),
-      seedCustomers(),
-      seedInvoices(),
-      seedRevenue(),
-    ]);
+    console.log('Clearing existing data from tables...');
+    // DELETE IN DEPENDENCY ORDER: Children first, then parents.
+    // Invoices depend on Customers/Users, so delete invoices first.
+    await db.delete(schema.invoices);
+    await db.delete(schema.customers);
+    await db.delete(schema.users);
+    await db.delete(schema.revenue); // Revenue is independent, order doesn't strictly matter for it.
+    console.log('Tables cleared (data deleted).');
 
+    await seedUsers();
+    await seedCustomers();
+    await seedInvoices();
+    await seedRevenue();
+
+    console.log('Database seeded successfully!');
     return Response.json({ message: 'Database seeded successfully' });
   } catch (error) {
-    return Response.json({ error }, { status: 500 });
+    console.error('Error seeding database:', error);
+    // Provide more specific error details if possible
+    let errorMessage = 'An unknown error occurred during seeding.';
+    if (error instanceof Error) {
+        errorMessage = error.message;
+        // If it's a Drizzle error, it might have a cause or specific properties
+        // For example, if it's a 'pg' error, it might have `detail` or `code`
+        // console.error('Full error object:', error); // Uncomment for more detailed debugging
+    } else if (typeof error === 'object' && error !== null && 'detail' in error) {
+        // Attempt to extract detail from a postgres-like error object
+        errorMessage = (error as any).detail;
+    }
+    return Response.json({ error: errorMessage }, { status: 500 });
+  } finally {
+    // (db.$client as Pool).end(); // Uncomment if you face issues with lingering connections after seeding
   }
 }

@@ -1,0 +1,14 @@
+-- 初期化用SQL
+-- CREATE TABLE IF NOT EXISTS "user" (
+--   id TEXT PRIMARY KEY,
+--   name TEXT NOT NULL,
+--   email TEXT UNIQUE NOT NULL,
+--   status TEXT NOT NULL
+-- );
+
+-- シードデータ投入
+-- INSERT INTO "user" (id, name, email, status)
+-- VALUES
+--   ('1', 'Alice', 'alice@example.com', 'ACTIVE'),
+--   ('2', 'Bob', 'bob@example.com', 'INACTIVE')
+-- ON CONFLICT (id) DO NOTHING;
